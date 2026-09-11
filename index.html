@@ -92,6 +92,11 @@ const C = {
   BEST_KEY: "lumoBounceBestScore",
   SOUND_KEY: "lumoBounceSound",
   CTRL_KEY: "lumoBounceControl",
+  WALLET_KEY: "lumoBounceWallet",
+  OWNED_KEY: "lumoBounceOwned",
+  EQUIP_KEY: "lumoBounceEquipped",
+  ROCKETS_KEY: "lumoBounceRockets",
+  EXTRAS_KEY: "lumoBounceExtras",
 };
 
 const COL = {
@@ -179,6 +184,101 @@ function getControl() {
   return localStorage.getItem(C.CTRL_KEY) || "touch"; // touch | follow | keys
 }
 function setControl(m) { localStorage.setItem(C.CTRL_KEY, m); }
+
+// ─── Shop / wallet ────────────────────────────────────────────────────────────
+const SKINS = [
+  { id: "classic", name: "Classique", price: 0, body: "#ffd959", outline: "#f28c26", accent: "#ff8c8c", free: true },
+  { id: "neon", name: "Néon", price: 80, body: "#59f2bf", outline: "#1affd5", accent: "#b3fff0" },
+  { id: "ghost", name: "Fantôme", price: 120, body: "#e6f0ff", outline: "#a0b8ff", accent: "#c8d8ff", ghost: true },
+  { id: "robot", name: "Robot", price: 180, body: "#9aa4b8", outline: "#5a6478", accent: "#59f2bf", robot: true },
+  { id: "fire", name: "Braises", price: 250, body: "#ff7040", outline: "#ff2200", accent: "#ffd040", fire: true },
+  { id: "galaxy", name: "Galaxy", price: 400, body: "#6b4dff", outline: "#c44dff", accent: "#ff80ff", galaxy: true },
+];
+
+const ROCKETS = [
+  { id: "mini", name: "Mini fusée", price: 40, desc: "Jetpack 2.5s", dur: 2.5, thrust: 850 },
+  { id: "super", name: "Super fusée", price: 90, desc: "Jetpack 4.5s fort", dur: 4.5, thrust: 1050 },
+  { id: "mega", name: "Méga fusée", price: 180, desc: "Jetpack 6s ultra", dur: 6.0, thrust: 1250 },
+];
+
+const EXTRAS = [
+  { id: "start_shield", name: "Bouclier départ", price: 60, desc: "Bouclier en début de partie" },
+  { id: "lucky", name: "Chance pièce", price: 100, desc: "Pièces +50% valeur" },
+  { id: "slow_start", name: "Ralentisseur", price: 70, desc: "Plateformes lentes 8s" },
+  { id: "revive", name: "2e chance", price: 150, desc: "1 revive auto / partie" },
+];
+
+function getWallet() { return parseInt(localStorage.getItem(C.WALLET_KEY) || "0", 10) || 0; }
+function setWallet(n) { localStorage.setItem(C.WALLET_KEY, String(Math.max(0, n|0))); }
+function addWallet(n) { setWallet(getWallet() + (n|0)); return getWallet(); }
+
+function getOwned() {
+  try { return JSON.parse(localStorage.getItem(C.OWNED_KEY) || '["classic"]'); } catch (_) { return ["classic"]; }
+}
+function setOwned(arr) { localStorage.setItem(C.OWNED_KEY, JSON.stringify(arr)); }
+function owns(id) { return getOwned().includes(id); }
+
+function getEquip() {
+  try { return JSON.parse(localStorage.getItem(C.EQUIP_KEY) || '{"skin":"classic"}'); } catch (_) { return { skin: "classic" }; }
+}
+function setEquip(obj) { localStorage.setItem(C.EQUIP_KEY, JSON.stringify(obj)); }
+function getSkin() {
+  const id = getEquip().skin || "classic";
+  return SKINS.find(s => s.id === id) || SKINS[0];
+}
+
+function getRocketStock() {
+  try { return JSON.parse(localStorage.getItem(C.ROCKETS_KEY) || "{}"); } catch (_) { return {}; }
+}
+function setRocketStock(o) { localStorage.setItem(C.ROCKETS_KEY, JSON.stringify(o)); }
+function rocketCount(id) { return getRocketStock()[id] || 0; }
+function addRocket(id, n) {
+  const o = getRocketStock();
+  o[id] = (o[id] || 0) + n;
+  if (o[id] <= 0) delete o[id];
+  setRocketStock(o);
+}
+
+function getExtraStock() {
+  try { return JSON.parse(localStorage.getItem(C.EXTRAS_KEY) || "{}"); } catch (_) { return {}; }
+}
+function setExtraStock(o) { localStorage.setItem(C.EXTRAS_KEY, JSON.stringify(o)); }
+function extraCount(id) { return getExtraStock()[id] || 0; }
+function addExtra(id, n) {
+  const o = getExtraStock();
+  o[id] = (o[id] || 0) + n;
+  if (o[id] <= 0) delete o[id];
+  setExtraStock(o);
+}
+
+function buySkin(id) {
+  const skin = SKINS.find(s => s.id === id);
+  if (!skin || owns(id)) return false;
+  if (getWallet() < skin.price) return false;
+  setWallet(getWallet() - skin.price);
+  const o = getOwned(); o.push(id); setOwned(o);
+  const eq = getEquip(); eq.skin = id; setEquip(eq);
+  return true;
+}
+function equipSkin(id) {
+  if (!owns(id)) return false;
+  const eq = getEquip(); eq.skin = id; setEquip(eq);
+  return true;
+}
+function buyRocket(id) {
+  const r = ROCKETS.find(x => x.id === id);
+  if (!r || getWallet() < r.price) return false;
+  setWallet(getWallet() - r.price);
+  addRocket(id, 1);
+  return true;
+}
+function buyExtra(id) {
+  const e = EXTRAS.find(x => x.id === id);
+  if (!e || getWallet() < e.price) return false;
+  setWallet(getWallet() - e.price);
+  addExtra(id, 1);
+  return true;
+}
 
 // ─── Audio (Web Audio oscillators) ───────────────────────────────────────────
 let audioCtx = null;
@@ -373,11 +473,21 @@ function hitUI(x, y) {
 function handleUI(id) {
   SFX.button();
   ensureAudio();
+  if (id.startsWith("buy_skin_")) { buySkin(id.slice(9)); return; }
+  if (id.startsWith("eq_skin_")) { equipSkin(id.slice(8)); return; }
+  if (id.startsWith("buy_rocket_")) { buyRocket(id.slice(11)); return; }
+  if (id.startsWith("buy_extra_")) { buyExtra(id.slice(10)); return; }
   switch (id) {
     case "play": startGame(); break;
     case "best": showBestPanel = !showBestPanel; break;
+    case "shop": state = "shop"; shopTab = "skins"; shopScroll = 0; break;
     case "settings": state = "settings"; break;
     case "back": state = "menu"; showBestPanel = false; break;
+    case "tab_skins": shopTab = "skins"; shopScroll = 0; break;
+    case "tab_rockets": shopTab = "rockets"; shopScroll = 0; break;
+    case "tab_extras": shopTab = "extras"; shopScroll = 0; break;
+    case "shop_up": shopScroll = Math.max(0, shopScroll - 1); break;
+    case "shop_down": shopScroll = Math.min(12, shopScroll + 1); break;
     case "sound": soundOn = !soundOn; setSound(soundOn); break;
     case "ctrl_touch": setControl("touch"); break;
     case "ctrl_follow": setControl("follow"); break;
@@ -391,8 +501,10 @@ function handleUI(id) {
 }
 
 // ─── Game state ──────────────────────────────────────────────────────────────
-let state = "menu"; // menu | settings | playing | paused | gameover
+let state = "menu"; // menu | settings | shop | playing | paused | gameover
 let showBestPanel = false;
+let shopTab = "skins";
+let shopScroll = 0;
 let player, platforms, coins, powerUps;
 let camY, highestCamY, startY;
 let score, coinsCollected, maxHeight, bestScore;
@@ -404,6 +516,10 @@ let particles = [];
 let activePowers = {}; // type -> expire time (performance.now()/1000)
 let newBestFlag = false;
 let hintAlpha = 1;
+let coinsBanked = false;
+let runReviveAvailable = false;
+let runCoinMult = 1;
+let runRocketThrust = C.jetpackThrust;
 
 function difficultyFactor(height) {
   const steps = height / C.diffStep;
@@ -526,9 +642,41 @@ function startGame() {
   gameOverTimer = 0;
   newBestFlag = false;
   hintAlpha = 1;
+  coinsBanked = false;
+  runCoinMult = 1;
+  runReviveAvailable = false;
+  runRocketThrust = C.jetpackThrust;
   camY = H / 2;
   highestCamY = camY;
   spawnInitial();
+  // Shop loadout
+  const stock = getRocketStock();
+  const order = ["mega", "super", "mini"];
+  for (const rid of order) {
+    if ((stock[rid] || 0) > 0) {
+      addRocket(rid, -1);
+      const r = ROCKETS.find(x => x.id === rid);
+      activePowers.jetpack = nowSec() + r.dur;
+      runRocketThrust = r.thrust;
+      break;
+    }
+  }
+  if (extraCount("start_shield") > 0) {
+    addExtra("start_shield", -1);
+    activePowers.shield = nowSec() + C.shieldDur;
+  }
+  if (extraCount("lucky") > 0) {
+    addExtra("lucky", -1);
+    runCoinMult = 1.5;
+  }
+  if (extraCount("slow_start") > 0) {
+    addExtra("slow_start", -1);
+    activePowers.slowdown = nowSec() + 8;
+  }
+  if (extraCount("revive") > 0) {
+    addExtra("revive", -1);
+    runReviveAvailable = true;
+  }
   // Initial bounce
   player.vy = C.jumpNormal * 0.85;
   SFX.jump();
@@ -613,6 +761,10 @@ function triggerGameOver() {
     bestScore = score;
     newBestFlag = true;
   }
+  if (!coinsBanked) {
+    addWallet(coinsCollected);
+    coinsBanked = true;
+  }
   gameOverTimer = 0.7;
 }
 
@@ -678,8 +830,9 @@ function updatePlaying(dt) {
 
   // Jetpack
   if (hasPower("jetpack") && player.alive) {
-    player.vy = Math.max(player.vy, C.jetpackThrust * 0.55);
-    player.vy += C.jetpackThrust * 0.55 * dt;
+    const th = runRocketThrust || C.jetpackThrust;
+    player.vy = Math.max(player.vy, th * 0.55);
+    player.vy += th * 0.55 * dt;
   }
 
   player.x += player.vx * dt;
@@ -720,7 +873,7 @@ function updatePlaying(dt) {
     }
     if (Math.hypot(coin.x - player.x, coin.y - player.y) < player.r + coin.r) {
       coin.alive = false;
-      coinsCollected += coin.value;
+      coinsCollected += Math.round(coin.value * runCoinMult);
       recomputeScore();
       SFX.coin();
       spawnBurst(coin.x, coin.y, COL.coin, 6);
@@ -794,6 +947,12 @@ function updatePlaying(dt) {
       SFX.shieldBreak();
       player.y = camY - H * 0.2;
       bouncePlayer(C.jumpNormal * 1.1);
+    } else if (runReviveAvailable) {
+      runReviveAvailable = false;
+      SFX.shieldBreak();
+      player.y = camY - H * 0.15;
+      bouncePlayer(C.jumpNormal * 1.25);
+      spawnBurst(player.x, player.y, COL.accent, 12);
     } else {
       triggerGameOver();
     }
@@ -904,14 +1063,41 @@ function drawPlayer() {
     ctx.globalAlpha = player.alive ? 1 : Math.max(0, player.scaleX);
   }
 
+  const skin = getSkin();
+  const bodyCol = hasPower("superBounce") ? COL.superBounce : skin.body;
+  if (skin.ghost) ctx.globalAlpha = (player.alive ? 0.72 : Math.max(0, player.scaleX));
+
   // Body
   ctx.beginPath();
   ctx.arc(0, 0, player.r, 0, Math.PI * 2);
-  ctx.fillStyle = hasPower("superBounce") ? COL.superBounce : COL.playerBody;
+  ctx.fillStyle = bodyCol;
   ctx.fill();
   ctx.lineWidth = 3;
-  ctx.strokeStyle = COL.playerOutline;
+  ctx.strokeStyle = skin.outline;
   ctx.stroke();
+
+  if (skin.robot) {
+    roundRect(-10, -6, 20, 8, 2);
+    ctx.fillStyle = skin.accent;
+    ctx.fill();
+  }
+  if (skin.fire) {
+    ctx.fillStyle = skin.accent;
+    ctx.beginPath();
+    ctx.moveTo(-8, -player.r + 2);
+    ctx.lineTo(0, -player.r - 10);
+    ctx.lineTo(8, -player.r + 2);
+    ctx.fill();
+  }
+  if (skin.galaxy) {
+    ctx.fillStyle = skin.accent;
+    for (let i = 0; i < 5; i++) {
+      const a = i * 1.2 + performance.now() / 400;
+      ctx.beginPath();
+      ctx.arc(Math.cos(a) * 10, Math.sin(a) * 10, 1.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
 
   // Eyes
   ctx.fillStyle = COL.playerEye;
@@ -922,9 +1108,13 @@ function drawPlayer() {
   ctx.beginPath(); ctx.arc(8, -5, 1.2, 0, Math.PI * 2); ctx.fill();
 
   // Cheeks
-  ctx.fillStyle = COL.playerCheek;
-  ctx.beginPath(); ctx.arc(-11, 2, 4, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.arc(11, 2, 4, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = skin.accent;
+  ctx.globalAlpha = skin.ghost ? 0.45 : 0.7;
+  if (player.alive || skin.ghost) {
+    ctx.beginPath(); ctx.arc(-11, 2, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(11, 2, 4, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.globalAlpha = player.alive ? (skin.ghost ? 0.72 : 1) : Math.max(0, player.scaleX);
 
   // Smile
   ctx.strokeStyle = COL.playerEye;
@@ -1185,12 +1375,13 @@ function drawMenu() {
   const py = H * 0.42 + Math.sin(performance.now() / 550) * 12;
   ctx.save();
   ctx.translate(W / 2, py);
+  const sk = getSkin();
   ctx.beginPath();
   ctx.arc(0, 0, 28, 0, Math.PI * 2);
-  ctx.fillStyle = COL.playerBody;
+  ctx.fillStyle = sk.body;
   ctx.fill();
   ctx.lineWidth = 3;
-  ctx.strokeStyle = COL.playerOutline;
+  ctx.strokeStyle = sk.outline;
   ctx.stroke();
   ctx.fillStyle = COL.playerEye;
   ctx.beginPath(); ctx.arc(-8, -5, 3.5, 0, Math.PI * 2); ctx.fill();
@@ -1203,14 +1394,21 @@ function drawMenu() {
   ctx.beginPath(); ctx.arc(0, 4, 10, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke();
   ctx.restore();
 
-  drawButton("Play", W / 2, H * 0.58, 220, 52, COL.accent, "play");
-  drawButton("Best Score", W / 2, H * 0.68, 220, 48, COL.warning, "best");
-  drawButton("Settings", W / 2, H * 0.77, 220, 48, COL.primary, "settings");
+  // Preview uses equipped skin colors
+  // (drawn above with classic; recolor quickly)
+  
+  drawButton("Jouer", W / 2, H * 0.54, 220, 48, COL.accent, "play");
+  drawButton("Boutique", W / 2, H * 0.63, 220, 46, COL.secondary, "shop");
+  drawButton("Meilleur score", W / 2, H * 0.715, 220, 44, COL.warning, "best");
+  drawButton("Paramètres", W / 2, H * 0.80, 220, 44, COL.primary, "settings");
 
-  ctx.fillStyle = COL.warning;
-  ctx.font = "600 16px system-ui, sans-serif";
+  ctx.fillStyle = COL.coin;
+  ctx.font = "700 16px system-ui, sans-serif";
   ctx.textAlign = "center";
-  ctx.fillText("Best: " + getBest(), W / 2, H * 0.88);
+  ctx.fillText("● " + getWallet() + " pièces", W / 2, H * 0.90);
+  ctx.fillStyle = "rgba(255,255,255,0.75)";
+  ctx.font = "600 13px system-ui, sans-serif";
+  ctx.fillText("Record: " + getBest(), W / 2, H * 0.94);
 
   if (showBestPanel) {
     clearButtons();
@@ -1231,6 +1429,97 @@ function drawMenu() {
     ctx.fillText(String(getBest()), W / 2, H / 2 + 10);
     drawButton("OK", W / 2, H / 2 + 55, 120, 40, COL.primary, "best");
   }
+}
+
+function drawShop() {
+  clearButtons();
+  drawSky();
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = COL.menuTitle;
+  ctx.font = "bold 30px system-ui, sans-serif";
+  ctx.fillText("Boutique", W / 2, 36);
+  ctx.fillStyle = COL.coin;
+  ctx.font = "700 16px system-ui";
+  ctx.fillText("● " + getWallet(), W / 2, 64);
+
+  const tabs = [
+    ["tab_skins", "Skins", "skins"],
+    ["tab_rockets", "Fusées", "rockets"],
+    ["tab_extras", "Extras", "extras"],
+  ];
+  tabs.forEach((t, i) => {
+    const x = W * 0.2 + i * W * 0.3;
+    const on = shopTab === t[2];
+    drawButton(t[1], x, 100, 100, 34, on ? COL.accent : COL.buttonFill, t[0]);
+  });
+
+  let items = [];
+  if (shopTab === "skins") {
+    items = SKINS.map(s => ({
+      kind: "skin", id: s.id, name: s.name, price: s.price,
+      detail: owns(s.id) ? (getEquip().skin === s.id ? "Équipé" : "Possédé") : (s.price + " ●"),
+      color: s.body,
+    }));
+  } else if (shopTab === "rockets") {
+    items = ROCKETS.map(r => ({
+      kind: "rocket", id: r.id, name: r.name, price: r.price,
+      detail: "Stock: " + rocketCount(r.id) + " · " + r.desc,
+      color: COL.jetpack,
+    }));
+  } else {
+    items = EXTRAS.map(e => ({
+      kind: "extra", id: e.id, name: e.name, price: e.price,
+      detail: "Stock: " + extraCount(e.id) + " · " + e.desc,
+      color: COL.shield,
+    }));
+  }
+
+  const visible = 4;
+  const start = shopScroll;
+  const slice = items.slice(start, start + visible);
+  slice.forEach((it, i) => {
+    const y = 160 + i * 110;
+    roundRect(24, y - 42, W - 48, 96, 16);
+    ctx.fillStyle = COL.buttonFill;
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.35)";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(56, y, 18, 0, Math.PI * 2);
+    ctx.fillStyle = it.color;
+    ctx.fill();
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "left";
+    ctx.font = "bold 16px system-ui";
+    ctx.fillText(it.name, 86, y - 12);
+    ctx.font = "12px system-ui";
+    ctx.fillStyle = "rgba(255,255,255,0.75)";
+    ctx.fillText(it.detail, 86, y + 10);
+
+    if (it.kind === "skin") {
+      if (owns(it.id)) {
+        if (getEquip().skin !== it.id) drawButton("Équiper", W - 78, y, 90, 36, COL.primary, "eq_skin_" + it.id);
+        else {
+          ctx.textAlign = "center";
+          ctx.fillStyle = COL.accent;
+          ctx.font = "bold 13px system-ui";
+          ctx.fillText("OK", W - 78, y);
+        }
+      } else {
+        drawButton("Acheter", W - 78, y, 90, 36, getWallet() >= it.price ? COL.warning : "#555", "buy_skin_" + it.id);
+      }
+    } else if (it.kind === "rocket") {
+      drawButton("Acheter", W - 78, y, 90, 36, getWallet() >= it.price ? COL.warning : "#555", "buy_rocket_" + it.id);
+    } else {
+      drawButton("Acheter", W - 78, y, 90, 36, getWallet() >= it.price ? COL.warning : "#555", "buy_extra_" + it.id);
+    }
+  });
+
+  if (start > 0) drawButton("▲", W / 2, H - 110, 70, 34, COL.buttonFill, "shop_up");
+  if (start + visible < items.length) drawButton("▼", W / 2, H - 72, 70, 34, COL.buttonFill, "shop_down");
+  drawButton("Retour", W / 2, H - 32, 160, 40, COL.primary, "back");
 }
 
 function drawSettings() {
@@ -1294,10 +1583,14 @@ function drawGameOver() {
 
   ctx.fillStyle = newBestFlag ? COL.warning : COL.accent;
   ctx.font = "600 20px system-ui";
-  ctx.fillText(newBestFlag ? "★ New Best!" : "Best: " + bestScore, W / 2, H * 0.48);
+  ctx.fillText(newBestFlag ? "★ Nouveau record !" : "Record: " + bestScore, W / 2, H * 0.46);
+  ctx.fillStyle = COL.coin;
+  ctx.font = "600 16px system-ui";
+  ctx.fillText("+" + coinsCollected + " ●  →  caisse " + getWallet(), W / 2, H * 0.52);
 
-  drawButton("Replay", W / 2, H * 0.60, 200, 50, COL.accent, "replay");
-  drawButton("Menu", W / 2, H * 0.72, 200, 50, COL.primary, "menu");
+  drawButton("Rejouer", W / 2, H * 0.62, 200, 48, COL.accent, "replay");
+  drawButton("Boutique", W / 2, H * 0.71, 200, 44, COL.secondary, "shop");
+  drawButton("Menu", W / 2, H * 0.80, 200, 44, COL.primary, "menu");
 
   // Tiny lumo
   ctx.save();
@@ -1344,7 +1637,7 @@ function frame(t) {
   let dt = lastTime ? Math.min(sec - lastTime, 1 / 20) : 1 / 60;
   lastTime = sec;
 
-  if (state === "menu" || state === "settings") {
+  if (state === "menu" || state === "settings" || state === "shop") {
     updateMenu(dt);
   } else if (state === "playing") {
     updatePlaying(dt);
@@ -1357,6 +1650,7 @@ function frame(t) {
   // Draw
   if (state === "menu") drawMenu();
   else if (state === "settings") drawSettings();
+  else if (state === "shop") drawShop();
   else if (state === "gameover") drawGameOver();
   else drawGame();
 
