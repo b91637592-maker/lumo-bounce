@@ -25,7 +25,7 @@ canvas{display:block;width:100%;height:100%;cursor:crosshair}
 <script>
 (() => {
 "use strict";
-const VER = "astro-lumo-noms-v2-20260911";
+const VER = "astro-lumo-noboss-20260911";
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
 const loadEl = document.getElementById("load");
@@ -287,11 +287,8 @@ function initFX(){
 initFX();
 
 function maybeBoss(){
-  if(boss&&boss.alive)return;
-  const thresholds=[[900,"sat"],[1900,"drone"],[3200,"ufoKing"],[4800,"tentacle"],[6500,"voidLord"]];
-  for(const [h,k] of thresholds){
-    if(maxH>=h && !bossesBeat[k]){ boss=mkBoss(k, player.y+210); SFX.boss(); toast("BOSS · "+boss.name); addShake(.45); return; }
-  }
+  // Bosses (purple balls) disabled — only sprite monsters every 100 pts
+  boss=null;
 }
 function hurtBoss(dmg){
   if(!boss||!boss.alive)return;
@@ -568,6 +565,7 @@ function drawMon(m){
 }
 
 function drawBoss(){
+  return; // disabled
   if(!boss||!boss.alive)return;
   const sy=w2s(boss.y);
   ctx.save(); ctx.translate(boss.x,sy);
