@@ -7,25 +7,43 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <title>ASTRO LUMO</title>
+<meta name="theme-color" content="#0c1430">
+<meta name="description" content="Astro Lumo — saute, tire et bats les bosses dans l'espace.">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Astro Lumo">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 html,body{width:100%;height:100%;overflow:hidden;background:#02040c;font-family:system-ui,-apple-system,Segoe UI,sans-serif;touch-action:none;user-select:none}
-#wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at 50% 20%,#0c1430,#02040c 70%)}
+#wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at 50% 20%,#0c1430,#02040c 70%);padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
 #frame{position:relative;width:min(100vw,420px);height:min(100vh,100dvh);overflow:hidden;background:#000}
 @media(min-width:440px){#frame{border-radius:20px;max-height:min(96vh,900px);height:min(96vh,900px);box-shadow:0 0 80px rgba(80,140,255,.35),0 0 0 1px rgba(255,255,255,.08)}}
+/* Installed on iPhone / standalone: true fullscreen */
+@media all and (display-mode: standalone){
+  #frame{width:100vw;height:100vh;height:100dvh;max-height:none;border-radius:0;box-shadow:none}
+}
 canvas{display:block;width:100%;height:100%;cursor:crosshair}
 #load{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#050814;color:#9ecbff;font:700 14px system-ui;z-index:3}
+#iosHint{display:none;position:absolute;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));z-index:5;background:rgba(8,16,40,.92);border:1px solid rgba(255,255,255,.18);border-radius:14px;padding:12px 14px;color:#d7ecff;font:600 12px/1.35 system-ui;text-align:center}
+#iosHint b{color:#ffd24a}
+#iosHint button{margin-top:8px;background:#1fd492;border:0;border-radius:10px;color:#032;font:800 12px system-ui;padding:8px 14px}
 </style>
 </head>
 <body>
 <div id="wrap"><div id="frame">
 <div id="load">Chargement de l’astronaute…</div>
 <canvas id="c"></canvas>
+<div id="iosHint">Sur iPhone : Safari → <b>Partager</b> → <b>Sur l’écran d’accueil</b><br>pour installer la démo.<br><button type="button" id="iosHintOk">OK</button></div>
 </div></div>
 <script>
 (() => {
 "use strict";
-const VER = "astro-lumo-bossfix-20260911";
+const VER = "astro-lumo-ios-20260911";
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
 const loadEl = document.getElementById("load");
@@ -845,8 +863,10 @@ function drawMenu(){
   drawBtn("▶  JOUER", W/2, H*.58, 230, 52, "#1fd492", "play");
   drawBtn("Boutique", W/2, H*.68, 210, 44, "#ff4d9a", "shop");
   drawBtn("Réglages", W/2, H*.77, 210, 42, "#5a7dff", "settings");
-  ctx.fillStyle="#ffd24a"; ctx.font="700 14px system-ui"; ctx.fillText("● "+getWallet()+"  ·  Record "+getBest(), W/2, H*.88);
-  ctx.fillStyle="rgba(255,255,255,.4)"; ctx.font="10px system-ui"; ctx.fillText(VER, W/2, H*.94);
+  ctx.fillStyle="#ffd24a"; ctx.font="700 14px system-ui"; ctx.fillText("● "+getWallet()+"  ·  Record "+getBest(), W/2, H*.86);
+  ctx.fillStyle="#9ecbff"; ctx.font="600 11px system-ui";
+  ctx.fillText(isStandalone ? "Mode app iPhone ✓" : "iPhone : Partager → Écran d’accueil", W/2, H*.91);
+  ctx.fillStyle="rgba(255,255,255,.4)"; ctx.font="10px system-ui"; ctx.fillText(VER, W/2, H*.955);
 }
 
 function drawShop(){
@@ -949,6 +969,19 @@ for(const id of BOSS_IDS){
   im.onload=assetOk;
   im.onerror=()=>assetFail("boss:"+id);
   im.src="bosses/"+id+".png?v="+VER;
+}
+
+// PWA / iPhone install
+const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
+const hintEl = document.getElementById('iosHint');
+const hintOk = document.getElementById('iosHintOk');
+if(hintEl && isIos && !isStandalone && !localStorage.getItem('alIosHint')){
+  hintEl.style.display = 'block';
+}
+if(hintOk){ hintOk.onclick = ()=>{ try{ localStorage.setItem('alIosHint','1'); }catch(_){ } hintEl.style.display='none'; }; }
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('./sw.js?v='+VER).catch((e)=>console.warn('sw', e));
 }
 })();
 </script>
