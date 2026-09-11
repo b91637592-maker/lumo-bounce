@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>ASTRO LUMO</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -23,7 +25,7 @@ canvas{display:block;width:100%;height:100%;cursor:crosshair}
 <script>
 (() => {
 "use strict";
-const VER = "astro-lumo-monsters-20260911";
+const VER = "astro-lumo-noms-v2-20260911";
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
 const loadEl = document.getElementById("load");
@@ -135,7 +137,7 @@ function mkPlat(type,w,x,y){
   if(type==="moving"){p.spd=C.moveSp*(.7+Math.random()*.6); p.dir=Math.random()<.5?1:-1; p.range=40+Math.random()*65;}
   return p;
 }
-function mkMon(type,x,y){const t=type&&MON_IDS.includes(type)?type:pickMonType(); return {type:t,x,y,ox:x,r:22,alive:true,hp:1,ph:Math.random()*6,dir:Math.random()<.5?1:-1,spd:40+Math.random()*45};}
+function mkMon(type,x,y){const t=MON_IDS.includes(type)?type:pickMonType(); return {type:t,x,y,ox:x,r:24,alive:true,hp:1,ph:Math.random()*6,dir:Math.random()<.5?1:-1,spd:40+Math.random()*45};}
 function mkBoss(kind,y){
   const map={sat:{name:"Satellite",hp:16,r:34,sc:70},drone:{name:"Drone",hp:22,r:30,sc:90},ufoKing:{name:"Roi OVNI",hp:32,r:40,sc:140},tentacle:{name:"Kraken",hp:42,r:44,sc:200},voidLord:{name:"Seigneur",hp:55,r:48,sc:280}};
   const m=map[kind]||map.sat; return {kind,name:m.name,x:W/2,y,r:m.r,hp:m.hp,max:m.hp,alive:true,ph:0,sc:m.sc,flash:0};
@@ -404,12 +406,12 @@ function update(dt){
   plats=plats.filter(p=>p.y>=cull&&(p.on||p.a>0));
   coins=coins.filter(c=>c.alive&&c.y>=cull);
   powers=powers.filter(p=>p.alive&&p.y>=cull);
-  mons=mons.filter(m=>m.alive&&m.y>=cull-40);
+  mons=mons.filter(m=>m.alive&&m.y>=cull-40&&MON_IDS.includes(m.type));
   bullets=bullets.filter(b=>b.alive);
 
   const h=Math.max(0,player.y-startY); if(h>maxH)maxH=h; recompute();
   const tier=Math.floor(score/100);
-  if(tier>lastMonTier){ lastMonTier=tier; spawnScoreMonster(); }
+  while(tier>lastMonTier){ lastMonTier++; if(lastMonTier>=1) spawnScoreMonster(); }
   const kill=camY-H/2-40;
   if(player.alive&&player.y<kill){
     if(has("shield")){ delete powersActive.shield; player.y=camY-H*.2; bounce(C.jump*1.1); }
@@ -556,15 +558,12 @@ function drawPlat(p){
 function drawMon(m){
   const sy=w2s(m.y); if(sy<-80||sy>H+80)return;
   const img=monImgs[m.type];
+  if(!(img&&img.complete&&img.naturalWidth)) return;
   ctx.save(); ctx.translate(m.x,sy);
   ctx.shadowColor="rgba(0,0,0,.45)"; ctx.shadowBlur=10;
-  if(img&&img.complete&&img.naturalWidth){
-    const bob=Math.sin(m.ph)*3;
-    const dw=52, dh=dw*(img.height/img.width);
-    ctx.drawImage(img, -dw/2, -dh/2+bob, dw, dh);
-  } else {
-    ctx.fillStyle="#7dff9a"; ctx.beginPath(); ctx.arc(0,0,m.r,0,Math.PI*2); ctx.fill();
-  }
+  const bob=Math.sin(m.ph)*3;
+  const dw=58, dh=dw*(img.height/img.width);
+  ctx.drawImage(img, -dw/2, -dh/2+bob, dw, dh);
   ctx.restore();
 }
 
