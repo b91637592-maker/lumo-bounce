@@ -38,12 +38,12 @@
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="badge">astro-run-v1-20260911</div>
+<div id="badge">astro-run-v2-cam-20260911</div>
 <script>
 (function () {
   'use strict';
 
-  const VERSION = 'astro-run-v1-20260911';
+  const VERSION = 'astro-run-v2-cam-20260911';
   const BEST_KEY = 'astroRunBest';
 
   const canvas = document.getElementById('c');
@@ -139,10 +139,17 @@
     ];
   }
 
+  // Camera follows player lane — character always stays centered (Temple Run feel)
+  function camLane() {
+    if (player && (state === 'playing' || state === 'gameover')) return player.laneX;
+    return 1;
+  }
+
   function laneToX(lane, z) {
     const scale = 1 / z;
-    const spread = Math.min(W, H * 0.9) * 0.38 * scale * (Z_NEAR + 2);
-    return W * 0.5 + (lane - 1) * spread;
+    // Slightly tighter spread so side lanes stay on-screen as world slides
+    const spread = Math.min(W, H * 0.9) * 0.32 * scale * (Z_NEAR + 2);
+    return W * 0.5 + (lane - camLane()) * spread;
   }
 
   function zToY(z) {
@@ -586,17 +593,18 @@
   function drawPath() {
     const horizonY = H * 0.28;
     const groundY = H * 0.98;
+    // Path edges in lane coords: just outside lanes 0..2, camera-relative via project()
+    const farL = project(-0.55, Z_FAR);
+    const farR = project(2.55, Z_FAR);
+    const nearL = project(-0.55, Z_NEAR);
+    const nearR = project(2.55, Z_NEAR);
     const vpX = W * 0.5;
 
-    // path trapezoid fill
-    const nearSpread = Math.min(W, H * 0.9) * 0.55;
-    const farSpread = nearSpread * 0.06;
-
     ctx.beginPath();
-    ctx.moveTo(vpX - farSpread, horizonY);
-    ctx.lineTo(vpX + farSpread, horizonY);
-    ctx.lineTo(vpX + nearSpread, groundY);
-    ctx.lineTo(vpX - nearSpread, groundY);
+    ctx.moveTo(farL.x, horizonY);
+    ctx.lineTo(farR.x, horizonY);
+    ctx.lineTo(nearR.x, groundY);
+    ctx.lineTo(nearL.x, groundY);
     ctx.closePath();
     const pg = ctx.createLinearGradient(0, horizonY, 0, groundY);
     pg.addColorStop(0, 'rgba(40,60,120,0.35)');
@@ -605,16 +613,16 @@
     ctx.fillStyle = pg;
     ctx.fill();
 
-    // glowing edge rails
+    // glowing edge rails (follow camera)
     ctx.strokeStyle = 'rgba(100,180,255,0.55)';
     ctx.lineWidth = 2;
     ctx.shadowColor = 'rgba(80,160,255,0.8)';
     ctx.shadowBlur = 12;
     ctx.beginPath();
-    ctx.moveTo(vpX - farSpread, horizonY);
-    ctx.lineTo(vpX - nearSpread, groundY);
-    ctx.moveTo(vpX + farSpread, horizonY);
-    ctx.lineTo(vpX + nearSpread, groundY);
+    ctx.moveTo(farL.x, horizonY);
+    ctx.lineTo(nearL.x, groundY);
+    ctx.moveTo(farR.x, horizonY);
+    ctx.lineTo(nearR.x, groundY);
     ctx.stroke();
     ctx.shadowBlur = 0;
 
@@ -849,10 +857,13 @@
       scaleY *= 1 + Math.sin(player.bob * 2) * 0.03;
     }
 
-    const baseH = Math.min(W, H) * 0.22;
+    const baseH = Math.min(W, H) * 0.18;
     const aspect = astroImg.width / astroImg.height;
-    const h = baseH * scaleY;
-    const w = baseH * aspect * scaleX;
+    let h = baseH * scaleY;
+    let w = baseH * aspect * scaleX;
+    // never wider than ~28% of screen so sides stay clear
+    const maxW = W * 0.28;
+    if (w > maxW) { const k = maxW / w; w *= k; h *= k; }
 
     let alpha = 1;
     if (player.dead) {
