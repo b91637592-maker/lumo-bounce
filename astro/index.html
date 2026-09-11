@@ -25,7 +25,7 @@ canvas{display:block;width:100%;height:100%;cursor:crosshair}
 <script>
 (() => {
 "use strict";
-const VER = "astro-lumo-bosses-20260911";
+const VER = "astro-lumo-stomp-20260911";
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
 const loadEl = document.getElementById("load");
@@ -407,8 +407,14 @@ function update(dt){
         if(m.hp<=0){ m.alive=false; registerKill(14); burst(m.x,m.y,"#ffd24a",12); }
       }
     }
-    if(player.alive&&Math.hypot(m.x-player.x,m.y-player.y)<m.r+player.r*.75){
-      if(has("shield")){ delete powersActive.shield; m.alive=false; burst(m.x,m.y,"#4df",10); }
+    if(player.alive&&Math.hypot(m.x-player.x,m.y-player.y)<m.r+player.r*.85){
+      // Stomp: bounce on top kills monster and launches ~100 score pts of height (1000 units)
+      const stomping = player.y > m.y + m.r*.15 && player.vy <= 160;
+      if(stomping){
+        m.alive=false; registerKill(18); burst(m.x,m.y,"#ffd24a",14); SFX.hit(); addShake(.18);
+        player.y = m.y + m.r + player.r + 1000; // +100 pts de hauteur
+        bounce(C.jumpS); toast("+100 ↑");
+      } else if(has("shield")){ delete powersActive.shield; m.alive=false; burst(m.x,m.y,"#4df",10); }
       else if(revive){ revive=false; player.y=camY-H*.15; bounce(C.jump*1.25); m.alive=false; toast("Revive!"); }
       else gameOver();
     }
