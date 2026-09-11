@@ -25,7 +25,7 @@ canvas{display:block;width:100%;height:100%;cursor:crosshair}
 <script>
 (() => {
 "use strict";
-const VER = "astro-lumo-stomp-20260911";
+const VER = "astro-lumo-arena-20260911";
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
 const loadEl = document.getElementById("load");
@@ -177,10 +177,19 @@ function spawnScoreMonster(){
   mons.push(mkMon(type,x,y));
 }
 function ensureBossFloor(){
-  const fy=Math.max(40, player.y-player.r-8);
-  if(floorPlat&&floorPlat.on){ floorPlat.y=Math.min(floorPlat.y, fy); floorPlat.x=W/2; return; }
-  floorPlat=mkPlat("floor", W-16, W/2, fy);
-  floorPlat.glow=1;
+  // Full-screen safety bar — never dies from falling during boss
+  const fy = (floorPlat && floorPlat.on) ? floorPlat.y : Math.max(60, player.y - 40);
+  if(floorPlat && floorPlat.on){
+    floorPlat.w = W + 120;
+    floorPlat.x = W/2;
+    floorPlat.h = 28;
+    floorPlat.on = true;
+    floorPlat.a = 1;
+    return;
+  }
+  floorPlat = mkPlat("floor", W + 120, W/2, fy);
+  floorPlat.h = 28;
+  floorPlat.glow = 1.2;
   plats.push(floorPlat);
 }
 function clearBossFloor(){
@@ -189,25 +198,38 @@ function clearBossFloor(){
 function beginBossFight(){
   if(!player||!player.alive)return;
   if(boss&&boss.alive)return;
-  // remove small mons during boss
   for(const m of mons) m.alive=false;
-  const y=player.y+220;
-  boss=mkBoss(pickBossType(), y);
   climbLocked=true;
-  ensureBossFloor();
-  // freeze further climb: trim platforms above boss arena
-  const cap=player.y+260;
-  for(const p of plats){ if(p!==floorPlat && p.y>cap){ p.on=false; p.a=0; } }
-  topY=Math.min(topY, cap);
-  SFX.boss(); toast("BOSS · "+boss.name); addShake(.5);
+  // Lock arena floor under the player now
+  const fy=Math.max(60, player.y - 36);
+  floorPlat = mkPlat("floor", W + 120, W/2, fy);
+  floorPlat.h = 28; floorPlat.glow = 1.2;
+  plats.push(floorPlat);
+  // Remove ALL other platforms (no climbing out)
+  for(const p of plats){ if(p!==floorPlat){ p.on=false; p.a=0; } }
+  topY = fy + 40;
+  player.y = fy + player.r + 4;
+  player.vy = C.jump * .7;
+  // Stop jet / upward powers that would escape
+  delete powersActive.jet;
+  const by = fy + 210;
+  boss = mkBoss(pickBossType(), by);
+  // Freeze camera around arena
+  maxCam = fy + H * .35;
+  camY = maxCam;
+  SFX.boss(); toast("BOSS · "+boss.name+" — vaincs-le pour monter"); addShake(.5);
 }
 function unlockAfterBoss(){
   climbLocked=false;
+  const base = (floorPlat && floorPlat.on) ? floorPlat.y : player.y;
   clearBossFloor();
   const d=diff(Math.max(0,camY));
-  let y=Math.max(topY, player.y+80);
-  for(let i=0;i<16;i++){ y+=space(d); spawnRow(y,d); }
+  // Seed platforms starting just above arena so climb resumes
+  let y = base + C.baseSp;
+  plats.push(mkPlat("normal", 150, W/2, base + 8));
+  for(let i=0;i<18;i++){ y+=space(d); spawnRow(y,d); }
   topY=y;
+  maxCam = Math.max(maxCam, player.y + H*.14);
 }
 
 function burst(x,y,col,n,spd){ spd=spd||180; for(let i=0;i<n;i++){ const a=Math.random()*6.28,sp=spd*(.35+Math.random()); parts.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:.3+Math.random()*.35,max:.55,col,r:1.5+Math.random()*3}); } }
@@ -359,9 +381,11 @@ function update(dt){
     const bottom=player.y-player.r*.55;
     for(const p of plats){
       if(!p.on||p.a<.3)continue;
-      if(player.x<p.x-p.w*.48||player.x>p.x+p.w*.48)continue;
+      const full = p.type==="floor";
+      if(!full && (player.x<p.x-p.w*.48||player.x>p.x+p.w*.48))continue;
       const top=p.y+p.h*.4;
-      if(bottom>=top-16&&bottom<=top+14){ const imp=land(p); if(imp>0){ player.y=top+player.r*.55; bounce(imp);} break; }
+      const slack = full ? 28 : 14;
+      if(bottom>=top-16&&bottom<=top+slack){ const imp=land(p); if(imp>0){ player.y=top+player.r*.55; bounce(imp);} break; }
     }
   }
 
@@ -423,13 +447,20 @@ function update(dt){
   maybeBoss();
   if(boss&&boss.alive){
     boss.ph+=dt; boss.flash=Math.max(0,boss.flash-dt);
-    boss.x=W/2+Math.sin(boss.ph*1.1)*90;
-    boss.y=player.y+200+Math.sin(boss.ph*1.7)*18;
     ensureBossFloor();
+    const fy = floorPlat ? floorPlat.y : player.y - 40;
+    const ceiling = fy + H * .72;
+    // Cap climb: no escaping the arena upward
+    if(player.y > ceiling){ player.y = ceiling; if(player.vy>0) player.vy = 0; }
+    delete powersActive.jet;
+    boss.x=W/2+Math.sin(boss.ph*1.1)*90;
+    boss.y=fy + 200 + Math.sin(boss.ph*1.7)*16;
+    // Camera stays on arena
+    maxCam = fy + H * .35;
     for(const b of bullets){ if(!b.alive)continue; if(Math.hypot(b.x-boss.x,b.y-boss.y)<boss.r+b.r+8){ b.alive=false; hurtBoss(1); } }
     if(player.alive&&Math.hypot(boss.x-player.x,boss.y-player.y)<boss.r+player.r*.55){
       if(has("shield")){ delete powersActive.shield; hurtBoss(1); }
-      else if(revive){ revive=false; player.y=floorPlat?floorPlat.y+player.r:camY-H*.2; bounce(C.jump*1.35); toast("Revive!"); }
+      else if(revive){ revive=false; player.y=fy+player.r+8; bounce(C.jump*1.35); toast("Revive!"); }
       else gameOver();
     }
   }
@@ -461,15 +492,21 @@ function update(dt){
     if(lastMonTier%10===0) beginBossFight();
     else if(!(boss&&boss.alive)) spawnScoreMonster();
   }
-  // anti-fall during boss: floor catches; also soft clamp
+  // Boss arena: full-width floor — cannot die by falling
   if(boss&&boss.alive&&floorPlat&&floorPlat.on){
     const top=floorPlat.y+floorPlat.h*.4;
-    if(player.y-player.r*.55<top-2){ player.y=top+player.r*.55; if(player.vy<0) bounce(C.jump); }
+    if(player.y-player.r*.55 < top+2){
+      player.y=top+player.r*.55;
+      if(player.vy<0) bounce(C.jump);
+    }
   }
   const kill=camY-H/2-40;
   if(player.alive&&player.y<kill){
-    if(boss&&boss.alive&&floorPlat&&floorPlat.on){ player.y=floorPlat.y+player.r; bounce(C.jump); }
-    else if(has("shield")){ delete powersActive.shield; player.y=camY-H*.2; bounce(C.jump*1.1); }
+    if(boss&&boss.alive){
+      const fy = floorPlat && floorPlat.on ? floorPlat.y : camY - H*.2;
+      player.y = fy + player.r + 6;
+      bounce(C.jump);
+    } else if(has("shield")){ delete powersActive.shield; player.y=camY-H*.2; bounce(C.jump*1.1); }
     else if(revive){ revive=false; player.y=camY-H*.15; bounce(C.jump*1.25); toast("Revive!"); }
     else gameOver();
   }
