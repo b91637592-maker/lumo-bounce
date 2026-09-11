@@ -23,7 +23,7 @@ canvas{display:block;width:100%;height:100%;cursor:crosshair}
 <script>
 (() => {
 "use strict";
-const VER = "astro-lumo-gfx-20260911";
+const VER = "astro-lumo-monsters-20260911";
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
 const loadEl = document.getElementById("load");
@@ -33,7 +33,7 @@ const C = {
   jump:760, jumpB:1180, jumpS:1520, wrap:28, camLag:.12, cull:280,
   platH:20, minW:78, maxW:132, baseSp:96, minSp:56, maxSp:148, ahead:1100,
   moveSp:88, disDelay:.5, coinR:11, coinV:12, powerS:26,
-  coinCh:.3, powerCh:.07, monCh:.1, bulletSp:1000, bulletR:5, cd:.13,
+  coinCh:.3, powerCh:.07, monCh:0, bulletSp:1000, bulletR:5, cd:.13,
   BEST:"alGBest", WALLET:"alGWallet", OWNED:"alGOwned", EQUIP:"alGEquip",
   ROCK:"alGRock", EXTRA:"alGExtra", SOUND:"alGSound", CTRL:"alGCtrl", AMMO:"alGAmmo"
 };
@@ -121,6 +121,8 @@ let camY, maxCam, startY, score, runCoins, maxH, best, over, overT, lastT=0, top
 let powersActive={}, hint=1, banked=false, revive=false, coinMul=1, thrust=1000, fireCd=0;
 let keys={}, pDown=false, lastPX=null, hIn=0, ui=null, combo=0, comboT=0, kills=0, bossesBeat={};
 let astroImg=null, astroReady=false;
+const MON_IDS=["green_eye","purple_blob","spiky_grey","ufo","red_spider","blue_stalk","yellow_fire","purple_jelly"];
+let monImgs={}, monsReady=false, lastMonTier=0;
 
 function now(){return performance.now()/1000;}
 function has(t){return powersActive[t]>now();}
@@ -133,7 +135,7 @@ function mkPlat(type,w,x,y){
   if(type==="moving"){p.spd=C.moveSp*(.7+Math.random()*.6); p.dir=Math.random()<.5?1:-1; p.range=40+Math.random()*65;}
   return p;
 }
-function mkMon(type,x,y){return {type,x,y,ox:x,r:type==="ufo"?20:16,alive:true,hp:type==="ufo"?3:type==="spike"?2:1,ph:Math.random()*6,dir:Math.random()<.5?1:-1,spd:45+Math.random()*50};}
+function mkMon(type,x,y){const t=type&&MON_IDS.includes(type)?type:pickMonType(); return {type:t,x,y,ox:x,r:22,alive:true,hp:1,ph:Math.random()*6,dir:Math.random()<.5?1:-1,spd:40+Math.random()*45};}
 function mkBoss(kind,y){
   const map={sat:{name:"Satellite",hp:16,r:34,sc:70},drone:{name:"Drone",hp:22,r:30,sc:90},ufoKing:{name:"Roi OVNI",hp:32,r:40,sc:140},tentacle:{name:"Kraken",hp:42,r:44,sc:200},voidLord:{name:"Seigneur",hp:55,r:48,sc:280}};
   const m=map[kind]||map.sat; return {kind,name:m.name,x:W/2,y,r:m.r,hp:m.hp,max:m.hp,alive:true,ph:0,sc:m.sc,flash:0};
@@ -150,7 +152,7 @@ function pickPlat(d){
 }
 function platW(d,t){const sh=Math.min(.4,d*.18); let w=C.minW*(1-sh*.4)+Math.random()*Math.max(12,C.maxW*(1-sh)-C.minW); if(t==="bonus")w=Math.max(w,108); return w;}
 function space(d){return Math.max(C.minSp, C.baseSp+Math.min(C.maxSp-C.baseSp,d*36)+(-8+Math.random()*24));}
-function monType(d){if(d>1&&Math.random()<.25)return "ufo"; if(d>.4&&Math.random()<.4)return "spike"; return "blob";}
+function pickMonType(){ return MON_IDS[(Math.random()*MON_IDS.length)|0]; }
 
 function spawnRow(y,d){
   const t=pickPlat(d), w=platW(d,t), x=42+Math.random()*(W-84);
@@ -160,8 +162,14 @@ function spawnRow(y,d){
     const types=["jet","super","shield","magnet","slow"];
     powers.push({type:types[(Math.random()*types.length)|0],x:Math.min(W-30,Math.max(30,x-35+Math.random()*70)),y:y+40,s:C.powerS,alive:true,ph:Math.random()*6});
   }
-  if(y>startY+500 && Math.random()<C.monCh*(.3+d*.2))
-    mons.push(mkMon(monType(d), Math.min(W-28,Math.max(28,x-60+Math.random()*120)), y+60+Math.random()*35));
+}
+
+function spawnScoreMonster(){
+  if(!player||!player.alive)return;
+  const type=pickMonType();
+  const x=40+Math.random()*(W-80);
+  const y=Math.max(player.y+180, camY+H*.35)+Math.random()*80;
+  mons.push(mkMon(type,x,y));
 }
 
 function burst(x,y,col,n,spd){ spd=spd||180; for(let i=0;i<n;i++){ const a=Math.random()*6.28,sp=spd*(.35+Math.random()); parts.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:.3+Math.random()*.35,max:.55,col,r:1.5+Math.random()*3}); } }
@@ -189,7 +197,7 @@ function startGame(){
   plats.push(mkPlat("normal",150,W/2,startY));
   topY=startY; let y=startY+C.baseSp;
   for(let i=0;i<14;i++){ spawnRow(y,0); y+=space(0);} topY=y;
-  mons.push(mkMon("blob", W*.6, startY+560));
+  lastMonTier=0;
 
   const stock=getRockets();
   for(const id of ["mega","super","mini"]){
@@ -349,15 +357,16 @@ function update(dt){
   for(const m of mons){
     if(!m.alive)continue;
     m.ph+=dt*2.8;
-    if(m.type==="blob") m.x=m.ox+Math.sin(m.ph)*36;
-    else if(m.type==="spike"){ m.x+=m.dir*m.spd*(slow?.35:1)*dt; if(m.x<26||m.x>W-26)m.dir*=-1; }
-    else { m.x+=m.dir*m.spd*.7*(slow?.35:1)*dt; m.y+=Math.sin(m.ph)*14*dt; if(m.x<30||m.x>W-30)m.dir*=-1; }
+    const slowF=slow?.35:1;
+    if(m.type==="ufo"||m.type==="yellow_fire"){ m.x+=m.dir*m.spd*.85*slowF*dt; m.y+=Math.sin(m.ph)*18*dt; if(m.x<30||m.x>W-30)m.dir*=-1; }
+    else if(m.type==="spiky_grey"||m.type==="red_spider"){ m.x+=m.dir*m.spd*slowF*dt; if(m.x<26||m.x>W-26)m.dir*=-1; }
+    else { m.x=m.ox+Math.sin(m.ph)*40; m.y+=Math.sin(m.ph*1.3)*6*dt; }
     for(const b of bullets){
       if(!b.alive||!m.alive)continue;
       if(Math.hypot(b.x-m.x,b.y-m.y)<m.r+b.r){
         b.alive=false; m.hp-=b.dmg; burst(m.x,m.y,"#ff6688",6); addShake(.12);
         if(b.splash){ for(const m2 of mons) if(m2.alive&&Math.hypot(m2.x-m.x,m2.y-m.y)<b.splash) m2.hp-=1; burst(m.x,m.y,"#ff6b4a",12,240); }
-        if(m.hp<=0){ m.alive=false; registerKill(m.type==="ufo"?26:m.type==="spike"?16:11); burst(m.x,m.y,"#ffd24a",12); }
+        if(m.hp<=0){ m.alive=false; registerKill(14); burst(m.x,m.y,"#ffd24a",12); }
       }
     }
     if(player.alive&&Math.hypot(m.x-player.x,m.y-player.y)<m.r+player.r*.75){
@@ -372,7 +381,7 @@ function update(dt){
     boss.ph+=dt; boss.flash=Math.max(0,boss.flash-dt);
     boss.x=W/2+Math.sin(boss.ph*1.15)*100;
     boss.y=Math.max(player.y+150, boss.y);
-    if(Math.random()<dt*.15) mons.push(mkMon("blob", boss.x, boss.y-24));
+    // no random minions — monsters only every 100 score
     for(const b of bullets){ if(!b.alive)continue; if(Math.hypot(b.x-boss.x,b.y-boss.y)<boss.r+b.r){ const d=b.dmg; b.alive=false; hurtBoss(d); } }
     if(player.alive&&Math.hypot(boss.x-player.x,boss.y-player.y)<boss.r+player.r*.65){
       if(has("shield")){ delete powersActive.shield; hurtBoss(2); }
@@ -399,6 +408,8 @@ function update(dt){
   bullets=bullets.filter(b=>b.alive);
 
   const h=Math.max(0,player.y-startY); if(h>maxH)maxH=h; recompute();
+  const tier=Math.floor(score/100);
+  if(tier>lastMonTier){ lastMonTier=tier; spawnScoreMonster(); }
   const kill=camY-H/2-40;
   if(player.alive&&player.y<kill){
     if(has("shield")){ delete powersActive.shield; player.y=camY-H*.2; bounce(C.jump*1.1); }
@@ -543,26 +554,17 @@ function drawPlat(p){
 }
 
 function drawMon(m){
-  const sy=w2s(m.y); if(sy<-60||sy>H+60)return;
+  const sy=w2s(m.y); if(sy<-80||sy>H+80)return;
+  const img=monImgs[m.type];
   ctx.save(); ctx.translate(m.x,sy);
-  ctx.shadowColor="rgba(0,0,0,.4)"; ctx.shadowBlur=8;
-  if(m.type==="blob"){
-    const g=ctx.createRadialGradient(-4,-4,2,0,0,m.r+2);
-    g.addColorStop(0,"#b6ffc8"); g.addColorStop(1,"#2dcc66");
-    ctx.fillStyle=g; ctx.beginPath(); ctx.ellipse(0,0,m.r+2,m.r,0,0,Math.PI*2); ctx.fill();
-    ctx.shadowBlur=0; ctx.fillStyle="#fff"; ctx.beginPath(); ctx.ellipse(-6,-3,5,7,0,0,Math.PI*2); ctx.fill(); ctx.beginPath(); ctx.ellipse(6,-3,5,7,0,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle="#122"; ctx.beginPath(); ctx.arc(-5,-2,2.5,0,Math.PI*2); ctx.fill(); ctx.beginPath(); ctx.arc(7,-2,2.5,0,Math.PI*2); ctx.fill();
-  } else if(m.type==="spike"){
-    ctx.fillStyle="#ff4d78"; ctx.beginPath();
-    for(let i=0;i<8;i++){ const a=i/8*Math.PI*2-Math.PI/2; const rr=i%2?m.r*.5:m.r+7; (i?ctx.lineTo:ctx.moveTo).call(ctx,Math.cos(a)*rr,Math.sin(a)*rr); }
-    ctx.closePath(); ctx.fill(); ctx.shadowBlur=0;
+  ctx.shadowColor="rgba(0,0,0,.45)"; ctx.shadowBlur=10;
+  if(img&&img.complete&&img.naturalWidth){
+    const bob=Math.sin(m.ph)*3;
+    const dw=52, dh=dw*(img.height/img.width);
+    ctx.drawImage(img, -dw/2, -dh/2+bob, dw, dh);
   } else {
-    ctx.fillStyle="#d0d8e8"; ctx.beginPath(); ctx.ellipse(0,2,m.r+9,m.r*.38,0,0,Math.PI*2); ctx.fill();
-    const dg=ctx.createRadialGradient(0,-8,2,0,-4,m.r*.6); dg.addColorStop(0,"#e8ffff"); dg.addColorStop(1,"#4ad8ff");
-    ctx.fillStyle=dg; ctx.beginPath(); ctx.ellipse(0,-5,m.r*.65,m.r*.5,0,Math.PI,0); ctx.fill();
-    ctx.shadowBlur=0; ctx.fillStyle="#ffd24a"; for(let i=-2;i<=2;i++){ ctx.beginPath(); ctx.arc(i*8,3,2.2,0,Math.PI*2); ctx.fill(); }
+    ctx.fillStyle="#7dff9a"; ctx.beginPath(); ctx.arc(0,0,m.r,0,Math.PI*2); ctx.fill();
   }
-  if(m.hp>1){ ctx.fillStyle="#fff"; for(let i=0;i<m.hp;i++) ctx.fillRect(-9+i*8,-m.r-12,6,3); }
   ctx.restore();
 }
 
@@ -738,10 +740,27 @@ function frame(t){
 }
 
 best=getBest();
+loadEl.textContent="Chargement des sprites…";
+let pending=1+MON_IDS.length;
+function assetOk(){
+  pending--;
+  if(pending>0)return;
+  astroReady=true; monsReady=true;
+  loadEl.style.display="none";
+  requestAnimationFrame(frame);
+}
+function assetFail(n){ loadEl.textContent="Erreur: "+n; }
 astroImg=new Image();
-astroImg.onload=()=>{ astroReady=true; loadEl.style.display="none"; requestAnimationFrame(frame); };
-astroImg.onerror=()=>{ loadEl.textContent="Erreur chargement sprite"; };
+astroImg.onload=assetOk;
+astroImg.onerror=()=>assetFail("astronaute");
 astroImg.src="astro.png?v="+VER;
+for(const id of MON_IDS){
+  const im=new Image();
+  monImgs[id]=im;
+  im.onload=assetOk;
+  im.onerror=()=>assetFail(id);
+  im.src="monsters/"+id+".png?v="+VER;
+}
 })();
 </script>
 </body>
