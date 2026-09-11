@@ -25,7 +25,7 @@ canvas{display:block;width:100%;height:100%;cursor:crosshair}
 <script>
 (() => {
 "use strict";
-const VER = "astro-lumo-noboss-20260911";
+const VER = "astro-lumo-bosses-20260911";
 const canvas = document.getElementById("c");
 const ctx = canvas.getContext("2d");
 const loadEl = document.getElementById("load");
@@ -124,7 +124,9 @@ let powersActive={}, hint=1, banked=false, revive=false, coinMul=1, thrust=1000,
 let keys={}, pDown=false, lastPX=null, hIn=0, ui=null, combo=0, comboT=0, kills=0, bossesBeat={};
 let astroImg=null, astroReady=false;
 const MON_IDS=["green_eye","purple_blob","spiky_grey","ufo","red_spider","blue_stalk","yellow_fire","purple_jelly"];
-let monImgs={}, monsReady=false, lastMonTier=0;
+const BOSS_IDS=["tentacle_green","jelly_multi","spiky_boss","ufo_boss","crab_red","slime_blue","rocket_yellow","jelly_dark"];
+const BOSS_NAMES={tentacle_green:"Tentacules",jelly_multi:"Méduse",spiky_boss:"Pic",ufo_boss:"OVNI",crab_red:"Crabe",slime_blue:"Slime",rocket_yellow:"Comète",jelly_dark:"Ombre"};
+let monImgs={}, bossImgs={}, monsReady=false, lastMonTier=0, climbLocked=false, floorPlat=null;
 
 function now(){return performance.now()/1000;}
 function has(t){return powersActive[t]>now();}
@@ -138,9 +140,10 @@ function mkPlat(type,w,x,y){
   return p;
 }
 function mkMon(type,x,y){const t=MON_IDS.includes(type)?type:pickMonType(); return {type:t,x,y,ox:x,r:24,alive:true,hp:1,ph:Math.random()*6,dir:Math.random()<.5?1:-1,spd:40+Math.random()*45};}
+function pickBossType(){ return BOSS_IDS[(Math.random()*BOSS_IDS.length)|0]; }
 function mkBoss(kind,y){
-  const map={sat:{name:"Satellite",hp:16,r:34,sc:70},drone:{name:"Drone",hp:22,r:30,sc:90},ufoKing:{name:"Roi OVNI",hp:32,r:40,sc:140},tentacle:{name:"Kraken",hp:42,r:44,sc:200},voidLord:{name:"Seigneur",hp:55,r:48,sc:280}};
-  const m=map[kind]||map.sat; return {kind,name:m.name,x:W/2,y,r:m.r,hp:m.hp,max:m.hp,alive:true,ph:0,sc:m.sc,flash:0};
+  const k=BOSS_IDS.includes(kind)?kind:pickBossType();
+  return {kind:k,name:BOSS_NAMES[k]||"Boss",x:W/2,y,ox:W/2,r:36,hp:10,max:10,alive:true,ph:Math.random()*6,sc:80,flash:0};
 }
 function mkBullet(x,y,o){o=o||{}; return {x,y,vy:o.vy||C.bulletSp,vx:o.vx||0,r:o.r||C.bulletR,alive:true,life:o.life||1,dmg:o.dmg||1,splash:o.splash||0,color:o.color||"#7ef",missile:!!o.missile};}
 
@@ -167,11 +170,44 @@ function spawnRow(y,d){
 }
 
 function spawnScoreMonster(){
-  if(!player||!player.alive)return;
+  if(!player||!player.alive||(boss&&boss.alive))return;
   const type=pickMonType();
   const x=40+Math.random()*(W-80);
   const y=Math.max(player.y+180, camY+H*.35)+Math.random()*80;
   mons.push(mkMon(type,x,y));
+}
+function ensureBossFloor(){
+  const fy=Math.max(40, player.y-player.r-8);
+  if(floorPlat&&floorPlat.on){ floorPlat.y=Math.min(floorPlat.y, fy); floorPlat.x=W/2; return; }
+  floorPlat=mkPlat("floor", W-16, W/2, fy);
+  floorPlat.glow=1;
+  plats.push(floorPlat);
+}
+function clearBossFloor(){
+  if(floorPlat){ floorPlat.on=false; floorPlat.a=0; floorPlat=null; }
+}
+function beginBossFight(){
+  if(!player||!player.alive)return;
+  if(boss&&boss.alive)return;
+  // remove small mons during boss
+  for(const m of mons) m.alive=false;
+  const y=player.y+220;
+  boss=mkBoss(pickBossType(), y);
+  climbLocked=true;
+  ensureBossFloor();
+  // freeze further climb: trim platforms above boss arena
+  const cap=player.y+260;
+  for(const p of plats){ if(p!==floorPlat && p.y>cap){ p.on=false; p.a=0; } }
+  topY=Math.min(topY, cap);
+  SFX.boss(); toast("BOSS · "+boss.name); addShake(.5);
+}
+function unlockAfterBoss(){
+  climbLocked=false;
+  clearBossFloor();
+  const d=diff(Math.max(0,camY));
+  let y=Math.max(topY, player.y+80);
+  for(let i=0;i<16;i++){ y+=space(d); spawnRow(y,d); }
+  topY=y;
 }
 
 function burst(x,y,col,n,spd){ spd=spd||180; for(let i=0;i<n;i++){ const a=Math.random()*6.28,sp=spd*(.35+Math.random()); parts.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:.3+Math.random()*.35,max:.55,col,r:1.5+Math.random()*3}); } }
@@ -199,7 +235,7 @@ function startGame(){
   plats.push(mkPlat("normal",150,W/2,startY));
   topY=startY; let y=startY+C.baseSp;
   for(let i=0;i<14;i++){ spawnRow(y,0); y+=space(0);} topY=y;
-  lastMonTier=0;
+  lastMonTier=0; climbLocked=false; floorPlat=null;
 
   const stock=getRockets();
   for(const id of ["mega","super","mini"]){
@@ -226,6 +262,7 @@ function land(p){
   if(has("super")) imp=C.jumpS;
   else if(p.type==="bounce") imp=C.jumpB;
   else if(p.type==="bonus"){ imp=C.jump*1.22; runCoins+=25; burst(p.x,p.y,"#ffd24a",10); }
+  else if(p.type==="floor") imp=C.jump*1.05;
   if(p.type==="disappear"&&!p.dis){ p.dis=true; p.dt=C.disDelay; }
   return imp;
 }
@@ -286,14 +323,16 @@ function initFX(){
 }
 initFX();
 
-function maybeBoss(){
-  // Bosses (purple balls) disabled — only sprite monsters every 100 pts
-  boss=null;
-}
+function maybeBoss(){ /* score-gated via lastMonTier */ }
 function hurtBoss(dmg){
   if(!boss||!boss.alive)return;
-  boss.hp-=dmg; boss.flash=.12; SFX.hit(); burst(boss.x,boss.y,"#ff66aa",10); addShake(.2);
-  if(boss.hp<=0){ boss.alive=false; bossesBeat[boss.kind]=true; registerKill(boss.sc); burst(boss.x,boss.y,"#ffd24a",30,300); addShake(.85); toast("Boss vaincu"); boss=null; }
+  // 10 shots to kill — 1 HP per hit regardless of weapon
+  boss.hp-=1; boss.flash=.12; SFX.hit(); burst(boss.x,boss.y,"#ff66aa",10); addShake(.2);
+  if(boss.hp<=0){
+    boss.alive=false; bossesBeat[boss.kind]=true; registerKill(boss.sc);
+    burst(boss.x,boss.y,"#ffd24a",30,300); addShake(.85); toast("Boss vaincu · monte !");
+    boss=null; unlockAfterBoss();
+  }
 }
 
 function update(dt){
@@ -378,13 +417,13 @@ function update(dt){
   maybeBoss();
   if(boss&&boss.alive){
     boss.ph+=dt; boss.flash=Math.max(0,boss.flash-dt);
-    boss.x=W/2+Math.sin(boss.ph*1.15)*100;
-    boss.y=Math.max(player.y+150, boss.y);
-    // no random minions — monsters only every 100 score
-    for(const b of bullets){ if(!b.alive)continue; if(Math.hypot(b.x-boss.x,b.y-boss.y)<boss.r+b.r){ const d=b.dmg; b.alive=false; hurtBoss(d); } }
-    if(player.alive&&Math.hypot(boss.x-player.x,boss.y-player.y)<boss.r+player.r*.65){
-      if(has("shield")){ delete powersActive.shield; hurtBoss(2); }
-      else if(revive){ revive=false; player.y=camY-H*.2; bounce(C.jump*1.35); toast("Revive!"); }
+    boss.x=W/2+Math.sin(boss.ph*1.1)*90;
+    boss.y=player.y+200+Math.sin(boss.ph*1.7)*18;
+    ensureBossFloor();
+    for(const b of bullets){ if(!b.alive)continue; if(Math.hypot(b.x-boss.x,b.y-boss.y)<boss.r+b.r+8){ b.alive=false; hurtBoss(1); } }
+    if(player.alive&&Math.hypot(boss.x-player.x,boss.y-player.y)<boss.r+player.r*.55){
+      if(has("shield")){ delete powersActive.shield; hurtBoss(1); }
+      else if(revive){ revive=false; player.y=floorPlat?floorPlat.y+player.r:camY-H*.2; bounce(C.jump*1.35); toast("Revive!"); }
       else gameOver();
     }
   }
@@ -398,9 +437,11 @@ function update(dt){
   const follow=player.y+H*.14; if(follow>maxCam)maxCam=follow;
   camY+=(Math.max(H/2,maxCam)-camY)*Math.min(1,C.camLag*60*dt);
   const d=diff(Math.max(0,camY));
-  while(topY<camY+C.ahead){ topY+=space(d); spawnRow(topY,d); }
+  if(!(boss&&boss.alive)&&!climbLocked){
+    while(topY<camY+C.ahead){ topY+=space(d); spawnRow(topY,d); }
+  }
   const cull=camY-H/2-C.cull;
-  plats=plats.filter(p=>p.y>=cull&&(p.on||p.a>0));
+  plats=plats.filter(p=>(p.type==="floor")||(p.y>=cull&&(p.on||p.a>0)));
   coins=coins.filter(c=>c.alive&&c.y>=cull);
   powers=powers.filter(p=>p.alive&&p.y>=cull);
   mons=mons.filter(m=>m.alive&&m.y>=cull-40&&MON_IDS.includes(m.type));
@@ -408,10 +449,21 @@ function update(dt){
 
   const h=Math.max(0,player.y-startY); if(h>maxH)maxH=h; recompute();
   const tier=Math.floor(score/100);
-  while(tier>lastMonTier){ lastMonTier++; if(lastMonTier>=1) spawnScoreMonster(); }
+  while(tier>lastMonTier){
+    lastMonTier++;
+    if(lastMonTier<1) continue;
+    if(lastMonTier%10===0) beginBossFight();
+    else if(!(boss&&boss.alive)) spawnScoreMonster();
+  }
+  // anti-fall during boss: floor catches; also soft clamp
+  if(boss&&boss.alive&&floorPlat&&floorPlat.on){
+    const top=floorPlat.y+floorPlat.h*.4;
+    if(player.y-player.r*.55<top-2){ player.y=top+player.r*.55; if(player.vy<0) bounce(C.jump); }
+  }
   const kill=camY-H/2-40;
   if(player.alive&&player.y<kill){
-    if(has("shield")){ delete powersActive.shield; player.y=camY-H*.2; bounce(C.jump*1.1); }
+    if(boss&&boss.alive&&floorPlat&&floorPlat.on){ player.y=floorPlat.y+player.r; bounce(C.jump); }
+    else if(has("shield")){ delete powersActive.shield; player.y=camY-H*.2; bounce(C.jump*1.1); }
     else if(revive){ revive=false; player.y=camY-H*.15; bounce(C.jump*1.25); toast("Revive!"); }
     else gameOver();
   }
@@ -533,7 +585,7 @@ function drawPlayer(){
 function drawPlat(p){
   const sy=w2s(p.y); if(sy<-50||sy>H+50)return;
   ctx.save(); ctx.globalAlpha=p.a; ctx.translate(p.x,sy);
-  const cols={normal:["#7ecbff","#3a8fd0"], moving:["#8ab0ff","#4a6fe0"], disappear:["#ffb08a","#e07040"], bounce:["#e0a0ff","#a050d0"], bonus:["#ffe066","#e0a020"]};
+  const cols={normal:["#7ecbff","#3a8fd0"], moving:["#8ab0ff","#4a6fe0"], disappear:["#ffb08a","#e07040"], bounce:["#e0a0ff","#a050d0"], bonus:["#ffe066","#e0a020"], floor:["#5dffb0","#1aad6e"]};
   const c=cols[p.type]||cols.normal;
   // glow
   ctx.shadowColor=c[0]; ctx.shadowBlur=12*p.glow;
@@ -565,23 +617,30 @@ function drawMon(m){
 }
 
 function drawBoss(){
-  return; // disabled
   if(!boss||!boss.alive)return;
   const sy=w2s(boss.y);
+  const img=bossImgs[boss.kind];
   ctx.save(); ctx.translate(boss.x,sy);
   if(boss.flash>0) ctx.globalAlpha=.55+Math.random()*.45;
-  ctx.shadowColor="#ff66dd"; ctx.shadowBlur=20;
-  const g=ctx.createRadialGradient(-8,-8,4,0,0,boss.r);
-  g.addColorStop(0,"#6a3a9a"); g.addColorStop(1,"#2a1048");
-  ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,boss.r,0,Math.PI*2); ctx.fill();
-  ctx.shadowBlur=0; ctx.strokeStyle="#ff80e0"; ctx.lineWidth=3; ctx.stroke();
-  ctx.fillStyle="#ffd24a"; ctx.beginPath(); ctx.arc(-12,-6,7,0,Math.PI*2); ctx.fill(); ctx.beginPath(); ctx.arc(12,-6,7,0,Math.PI*2); ctx.fill();
-  ctx.fillStyle="#111"; ctx.beginPath(); ctx.arc(-11,-5,3.5,0,Math.PI*2); ctx.fill(); ctx.beginPath(); ctx.arc(13,-5,3.5,0,Math.PI*2); ctx.fill();
+  ctx.shadowColor="#ff66dd"; ctx.shadowBlur=18;
+  if(img&&img.complete&&img.naturalWidth){
+    const bob=Math.sin(boss.ph*2)*4;
+    const dw=92, dh=dw*(img.height/img.width);
+    ctx.drawImage(img, -dw/2, -dh/2+bob, dw, dh);
+  } else {
+    ctx.fillStyle="#a44"; ctx.beginPath(); ctx.arc(0,0,boss.r,0,Math.PI*2); ctx.fill();
+  }
   ctx.restore();
-  const bw=190, bx=W/2-bw/2, by=52;
-  ctx.fillStyle="rgba(0,0,0,.4)"; rr(bx-2,by-2,bw+4,16,8); ctx.fill();
-  ctx.fillStyle="#ff3d6e"; rr(bx,by,bw*(boss.hp/boss.max),12,6); ctx.fill();
-  ctx.fillStyle="#fff"; ctx.font="800 11px system-ui"; ctx.textAlign="center"; ctx.fillText(boss.name, W/2, by-10);
+  // HP bar (10 hits)
+  const bw=200, bx=W/2-bw/2, by=48;
+  ctx.fillStyle="rgba(0,0,0,.45)"; rr(bx-2,by-2,bw+4,16,8); ctx.fill();
+  ctx.fillStyle="#ff3d6e"; rr(bx,by,bw*(Math.max(0,boss.hp)/boss.max),12,6); ctx.fill();
+  ctx.fillStyle="#fff"; ctx.font="800 12px system-ui"; ctx.textAlign="center";
+  ctx.fillText("BOSS · "+boss.name+" · "+boss.hp+"/10", W/2, by-12);
+  if(climbLocked){
+    ctx.fillStyle="#ffd24a"; ctx.font="700 11px system-ui";
+    ctx.fillText("Vaincs le boss pour monter", W/2, by+28);
+  }
 }
 
 function drawBullet(b){
@@ -738,7 +797,7 @@ function frame(t){
 
 best=getBest();
 loadEl.textContent="Chargement des sprites…";
-let pending=1+MON_IDS.length;
+let pending=1+MON_IDS.length+BOSS_IDS.length;
 function assetOk(){
   pending--;
   if(pending>0)return;
@@ -757,6 +816,13 @@ for(const id of MON_IDS){
   im.onload=assetOk;
   im.onerror=()=>assetFail(id);
   im.src="monsters/"+id+".png?v="+VER;
+}
+for(const id of BOSS_IDS){
+  const im=new Image();
+  bossImgs[id]=im;
+  im.onload=assetOk;
+  im.onerror=()=>assetFail("boss:"+id);
+  im.src="bosses/"+id+".png?v="+VER;
 }
 })();
 </script>
